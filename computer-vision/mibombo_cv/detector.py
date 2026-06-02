@@ -10,7 +10,7 @@ import numpy as np
 
 from libreyolo import LibreYOLO
 
-from mibombo_cv.gestures import MovementRecognizer, PoseFrame, to_movement_event
+from mibombo_cv.gestures import GestureCandidate, MovementRecognizer, PoseFrame, to_movement_event
 from mibombo_cv.types import MovementEvent
 
 
@@ -100,7 +100,53 @@ class MovementDetector:
         every = max(1, self.config.infer_every)
         return self._frame_index % every == 0
 
+    def _pose_from_frame(self, frame_bgr: np.ndarray, timestamp_ms: int) -> PoseFrame | None:
+        ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
+        height, width = frame_bgr.shape[:2]
+        infer_frame, scale_x, scale_y = _resize_for_infer(frame_bgr, self.config.infer_width)
+        result = self.model(infer_frame, color_format="bgr", conf=self.config.confidence)
+        selected = self._select_person(result)
+        if selected is None:
+            return None
+
+        keypoints, visible = selected
+        keypoints = _scale_keypoints(keypoints, scale_x, scale_y)
+        return PoseFrame(
+            keypoints=keypoints,
+            visible=visible,
+            frame_height=height,
+            frame_width=width,
+            timestamp_ms=ts,
+        )
+
+    def process_frame_candidate(
+        self,
+        frame_bgr: np.ndarray,
+        timestamp_ms: int | None = None,
+    ) -> tuple[GestureCandidate | None, PoseFrame | None]:
+        ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
+        pose_frame = self._pose_from_frame(frame_bgr, ts)
+        if pose_frame is None:
+            return None, None
+        return self.recognizer.update(pose_frame), pose_frame
+
+    def process_frame_with_pose(
+        self,
+        frame_bgr: np.ndarray,
+        timestamp_ms: int | None = None,
+    ) -> tuple[MovementEvent | None, PoseFrame | None]:
+        ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
+        candidate, pose_frame = self.process_frame_candidate(frame_bgr, ts)
+        if candidate is None:
+            return None, pose_frame
+        return to_movement_event(candidate, ts), pose_frame
+
     def process_frame(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None) -> MovementEvent | None:
+        ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
+        event, _pose_frame = self.process_frame_with_pose(frame_bgr, ts)
+        return event
+
+    def _legacy_process_frame(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None) -> MovementEvent | None:
         ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
         height, width = frame_bgr.shape[:2]
         infer_frame, scale_x, scale_y = _resize_for_infer(frame_bgr, self.config.infer_width)

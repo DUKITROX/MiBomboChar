@@ -2,15 +2,17 @@ const GAME_SECONDS = 15;
 const GRAVITY = 0.00155;
 const JUMP_VELOCITY = -0.62;
 const BIRD_X = 20;
-const PIPE_WIDTH = 13;
-const PIPE_GAP = 34;
+const PIPE_WIDTH = 3.5;
+const PIPE_GAP = 90;
+const PIPE_SPEED = 0.012;
+const BACKGROUND_SPEED = 0.018;
 
 const characters = [
-  character("AbaLux", "AbaLux"),
-  character("Charuld", "Charuld"),
-  character("DokiDoki", "DokiDoki"),
-  character("FAHH", "FAHH"),
-  character("KKKow_UP", "KKKow_UP")
+  character("AbaLux"),
+  character("AbaSkull", { down: "Charuld_DOWN.png", normal: "Charuld_NORMAL.jpeg" }),
+  character("DokiDoki"),
+  character("FAHH"),
+  character("KKKow")
 ];
 
 const tracks = {
@@ -21,6 +23,7 @@ const tracks = {
 
 const peers = new Map();
 const streams = new Map();
+const pendingIceCandidates = new Map();
 
 let roomCode = "";
 let hostId = "";
@@ -35,17 +38,19 @@ let gameStartedAt = 0;
 let animationFrame = 0;
 let winner = null;
 let soundtrack;
+let movePopups = [];
 
 const app = document.querySelector("#app");
+document.addEventListener("pointerdown", startSelectionMusicFromGesture, { capture: true });
 render();
 
-function character(folder, assetName) {
+function character(folder, overrides = {}) {
   return {
     id: folder,
     name: folder,
-    up: `/assets/characters/${folder}/${assetName}_UP.png`,
-    down: `/assets/characters/${folder}/${assetName}_DOWN.png`,
-    normal: `/assets/characters/${folder}/${assetName}_NORMAL.jpeg`
+    up: `/assets/characters/${folder}/${overrides.up || `${folder}_UP.png`}`,
+    down: `/assets/characters/${folder}/${overrides.down || `${folder}_DOWN.png`}`,
+    normal: `/assets/characters/${folder}/${overrides.normal || `${folder}_NORMAL.jpeg`}`
   };
 }
 
@@ -76,7 +81,7 @@ function connectEvents() {
   events.addEventListener("player:input", (event) => {
     const input = JSON.parse(event.data);
     const slot = players.findIndex((player) => player.id === input.playerId);
-    if (slot >= 0) jump(slot);
+    if (slot >= 0) applyMove(slot, input.action, input.intensity || 1);
   });
 
   events.addEventListener("signal", async (event) => {
@@ -88,7 +93,7 @@ function connectEvents() {
 
     if (signal.type === "ice-candidate") {
       const peer = getPeer(signal.playerId);
-      await peer.addIceCandidate(signal.data);
+      await addIceCandidate(signal.playerId, peer, signal.data);
     }
   });
 }
@@ -96,6 +101,7 @@ function connectEvents() {
 async function handleOffer(playerId, offer) {
   const peer = getPeer(playerId);
   await peer.setRemoteDescription(offer);
+  await flushIceCandidates(playerId, peer);
 
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
@@ -117,8 +123,6 @@ function getPeer(playerId) {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
 
-  peer.addTransceiver("video", { direction: "recvonly" });
-
   peer.onicecandidate = (event) => {
     if (!event.candidate) return;
     sendSignal({
@@ -131,20 +135,55 @@ function getPeer(playerId) {
   };
 
   peer.ontrack = (event) => {
-    const [stream] = event.streams;
-    if (!stream) return;
+    const [streamFromEvent] = event.streams;
+    const stream = streamFromEvent || streams.get(playerId) || new MediaStream();
+
+    if (!streamFromEvent) {
+      stream.addTrack(event.track);
+    }
 
     streams.set(playerId, stream);
+    statusMessage = "Phone video stream received.";
     attachStreams();
+    render();
   };
 
   peer.onconnectionstatechange = () => {
     statusMessage = `Connection changed: ${peer.connectionState}.`;
-    render();
+    if (screen !== "game") {
+      render();
+    }
+  };
+
+  peer.oniceconnectionstatechange = () => {
+    statusMessage = `ICE state: ${peer.iceConnectionState}.`;
+    if (screen !== "game") {
+      render();
+    }
   };
 
   peers.set(playerId, peer);
   return peer;
+}
+
+async function addIceCandidate(playerId, peer, candidate) {
+  if (!peer.remoteDescription) {
+    const pending = pendingIceCandidates.get(playerId) || [];
+    pending.push(candidate);
+    pendingIceCandidates.set(playerId, pending);
+    return;
+  }
+
+  await peer.addIceCandidate(candidate);
+}
+
+async function flushIceCandidates(playerId, peer) {
+  const pending = pendingIceCandidates.get(playerId) || [];
+  pendingIceCandidates.delete(playerId);
+
+  for (const candidate of pending) {
+    await peer.addIceCandidate(candidate);
+  }
 }
 
 async function sendSignal(payload) {
@@ -201,6 +240,9 @@ function createPlayerState(slot) {
     velocity: 0,
     score: 0,
     hits: 0,
+    movePoints: 0,
+    boostUntil: 0,
+    backgroundX: 0,
     lastFrameAt: performance.now(),
     pipes: createPipes(),
     invulnerableUntil: 0
@@ -210,7 +252,7 @@ function createPlayerState(slot) {
 function createPipes() {
   return [74, 116, 158].map((x, index) => ({
     x,
-    gapY: 26 + ((index * 17 + Math.random() * 22) % 42),
+    gapY: 4 + ((index * 3 + Math.random() * 3) % 6),
     scored: false
   }));
 }
@@ -234,6 +276,7 @@ function updatePlayerState(state, now) {
   state.lastFrameAt = now;
   state.velocity += GRAVITY * delta;
   state.y += state.velocity * delta;
+  state.backgroundX = (state.backgroundX - BACKGROUND_SPEED * delta) % 100;
 
   if (state.y < 6) {
     state.y = 6;
@@ -245,7 +288,8 @@ function updatePlayerState(state, now) {
   }
 
   state.pipes.forEach((pipe) => {
-    pipe.x -= 0.036 * delta;
+    const speed = now < state.boostUntil ? PIPE_SPEED * 4.5 : PIPE_SPEED;
+    pipe.x -= speed * delta;
 
     if (!pipe.scored && pipe.x + PIPE_WIDTH < BIRD_X) {
       pipe.scored = true;
@@ -254,7 +298,7 @@ function updatePlayerState(state, now) {
 
     if (pipe.x < -PIPE_WIDTH) {
       pipe.x = 112;
-      pipe.gapY = 18 + Math.random() * 48;
+      pipe.gapY = 4 + Math.random() * 6;
       pipe.scored = false;
     }
 
@@ -265,8 +309,8 @@ function updatePlayerState(state, now) {
 }
 
 function isCollision(state, pipe) {
-  const birdWidth = 8;
-  const birdHeight = 12;
+  const birdWidth = 22;
+  const birdHeight = 40;
   const overlapsX = BIRD_X + birdWidth > pipe.x && BIRD_X < pipe.x + PIPE_WIDTH;
   const outsideGap = state.y < pipe.gapY || state.y + birdHeight > pipe.gapY + PIPE_GAP;
   return overlapsX && outsideGap;
@@ -286,6 +330,24 @@ function jump(slot) {
   if (!state) return;
   state.velocity = JUMP_VELOCITY;
   renderGameFrame(Math.max(0, GAME_SECONDS - (performance.now() - gameStartedAt) / 1000));
+}
+
+function applyMove(slot, action, intensity) {
+  if (screen !== "game") return;
+  const state = gameState[slot];
+  if (!state) return;
+  if (action !== "dab") return;
+
+  state.boostUntil = performance.now() + 2600 + intensity * 1200;
+  state.score += 3;
+  state.movePoints += 3;
+  addMovePopup(slot, "DAB BOOST +3");
+
+  renderGameFrame(Math.max(0, GAME_SECONDS - (performance.now() - gameStartedAt) / 1000));
+}
+
+function addMovePopup(slot, label) {
+  movePopups.push({ slot, label, until: performance.now() + 900 });
 }
 
 function finishGame() {
@@ -315,13 +377,21 @@ function playTrack(src) {
     soundtrack.volume = 0.78;
   }
 
-  if (soundtrack.src.endsWith(src)) return;
-  soundtrack.pause();
-  soundtrack.src = src;
-  soundtrack.currentTime = 0;
+  if (!soundtrack.src.endsWith(src)) {
+    soundtrack.pause();
+    soundtrack.src = src;
+    soundtrack.currentTime = 0;
+  }
+
   soundtrack.play().catch(() => {
     statusMessage = "Tap a button to enable music.";
   });
+}
+
+function startSelectionMusicFromGesture(event) {
+  if (screen !== "select") return;
+  if (!event.target.closest("button")) return;
+  playTrack(tracks.select);
 }
 
 function render() {
@@ -364,6 +434,10 @@ function renderSelectionScreen() {
         ${[0, 1].map(renderSelectedSlot).join("")}
       </section>
 
+      <section class="camera-grid">
+        ${[0, 1].map(renderCameraPreview).join("")}
+      </section>
+
       <section class="fighter-grid">
         ${characters.map(renderCharacterCard).join("")}
       </section>
@@ -379,6 +453,20 @@ function renderSelectedSlot(slot) {
       <span>Player ${slot + 1}</span>
       <strong>${selected?.name || player?.name || "Pick character"}</strong>
     </button>
+  `;
+}
+
+function renderCameraPreview(slot) {
+  const player = players[slot];
+  const hasStream = Boolean(player && streams.has(player.id));
+
+  return `
+    <div class="camera-preview">
+      <video id="video-${slot}" ${player ? `data-player-id="${player.id}"` : ""} autoplay muted playsinline></video>
+      <div class="empty ${hasStream ? "hidden" : ""}">
+        ${player ? "Connecting camera..." : `Waiting for phone ${slot + 1}`}
+      </div>
+    </div>
   `;
 }
 
@@ -413,14 +501,18 @@ function renderGameScreen() {
 function renderPlayerLane(slot) {
   const selected = selections[slot];
   const player = players[slot];
+  const hasStream = Boolean(player && streams.has(player.id));
   return `
     <section class="player-lane">
       <div class="camera-panel">
-        <video id="video-${slot}" autoplay playsinline></video>
-        <div class="empty ${player ? "hidden" : ""}">Waiting for phone ${slot + 1}</div>
+        <video id="video-${slot}" ${player ? `data-player-id="${player.id}"` : ""} autoplay muted playsinline></video>
+        <div class="empty ${hasStream ? "hidden" : ""}">
+          ${player ? "Connecting camera..." : `Waiting for phone ${slot + 1}`}
+        </div>
       </div>
-      <button class="stage" data-jump="${slot}" aria-label="Player ${slot + 1} jump">
+      <button class="stage" id="stage-${slot}" data-jump="${slot}" aria-label="Player ${slot + 1} jump">
         <div class="pipes" id="pipes-${slot}"></div>
+        <div class="move-popup" id="move-popup-${slot}"></div>
         <img class="bird" id="bird-${slot}" src="${selected.down}" alt="${selected.name}" />
         <div class="stage-name">${player?.name || `Player ${slot + 1}`} / ${selected.name}</div>
       </button>
@@ -471,16 +563,26 @@ function renderGameFrame(timeLeft) {
     const score = document.querySelector(`#score-${state.slot}`);
     const bird = document.querySelector(`#bird-${state.slot}`);
     const pipes = document.querySelector(`#pipes-${state.slot}`);
+    const stage = document.querySelector(`#stage-${state.slot}`);
+    const popup = document.querySelector(`#move-popup-${state.slot}`);
     const selected = selections[state.slot];
+    const now = performance.now();
 
-    if (score) score.textContent = `P${state.slot + 1}: ${state.score}`;
+    if (score) score.textContent = `P${state.slot + 1}: ${state.score} / DAB ${state.movePoints}`;
+    if (stage) stage.style.setProperty("--background-x", `${state.backgroundX}%`);
     if (bird) {
       bird.style.setProperty("--bird-y", `${state.y}%`);
       bird.src = state.velocity < 0 ? selected.up : selected.down;
-      bird.classList.toggle("hit", performance.now() < state.invulnerableUntil);
+      bird.classList.toggle("hit", now < state.invulnerableUntil);
     }
     if (pipes) pipes.innerHTML = state.pipes.map(renderPipe).join("");
+    if (popup) {
+      const activePopup = movePopups.find((item) => item.slot === state.slot && item.until > now);
+      popup.textContent = activePopup?.label || "";
+      popup.classList.toggle("visible", Boolean(activePopup));
+    }
   });
+  movePopups = movePopups.filter((item) => item.until > performance.now());
 }
 
 function renderPipe(pipe) {
@@ -497,6 +599,9 @@ function attachStreams() {
 
     if (video && stream && video.srcObject !== stream) {
       video.srcObject = stream;
+      video.play().catch(() => {
+        statusMessage = "Click the host screen to allow video playback.";
+      });
     }
   });
 }

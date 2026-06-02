@@ -232,6 +232,8 @@ function relayPlayerInput(response, body) {
   const code = normalizeCode(body.code);
   const room = rooms.get(code);
   const playerId = String(body.playerId || "");
+  const action = String(body.action || "dab");
+  const intensity = Number(body.intensity || 1);
 
   if (!room) {
     sendJson(response, 404, { message: "Room not found." });
@@ -243,10 +245,15 @@ function relayPlayerInput(response, body) {
     return;
   }
 
+  console.log(
+    `[move] room=${code} player=${playerId.slice(0, 8)} action=${action} intensity=${intensity.toFixed(2)}`
+  );
+
   sendEvent(room.hostId, "player:input", {
     code,
     playerId,
-    action: String(body.action || "jump")
+    action,
+    intensity
   });
 
   sendJson(response, 200, { ok: true });

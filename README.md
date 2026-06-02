@@ -15,6 +15,50 @@ The computer-vision service is the first implemented module; other areas are sca
 
 ## Quick start
 
+### Phone WebRTC MVP
+
+Terminal 1 — backend/static server:
+
+```bash
+./run-backend.sh
+```
+
+Terminal 2 — show frontend URLs:
+
+```bash
+./run-frontend.sh
+```
+
+The host screen runs on the laptop:
+
+```text
+http://localhost:3000/host
+```
+
+Each phone opens the same client URL using the laptop LAN IP printed by the scripts:
+
+```text
+http://<laptop-lan-ip>:3000/client
+```
+
+The phones are distinguished by generated player IDs after they join the same room code. Phones must be on the same Wi-Fi/hotspot as the laptop. Camera access on real phones may require HTTPS; plain HTTP is reliable only for `localhost`.
+
+If the phone shows `navigator.mediaDevices.getUserMedia` as undefined, the page is not running in a secure browser context. Generate a local HTTPS certificate:
+
+```bash
+./generate-dev-cert.sh
+```
+
+Then restart:
+
+```bash
+./run-backend.sh
+```
+
+Use the printed `https://.../client` URL on the phone. If the browser still blocks camera access, install/trust `certs/dev-cert.pem` on the phone.
+
+### Computer Vision Prototype
+
 ```bash
 cd computer-vision
 uv venv ../.venv

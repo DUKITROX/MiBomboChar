@@ -5,6 +5,26 @@
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.move-popup {
+  color: #ffd34d;
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 950;
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  text-shadow: 0 4px 0 #111410;
+  top: 18%;
+  transform: translateX(-50%) scale(0.9);
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 6;
+}
+
+.move-popup.visible {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -105,6 +125,21 @@ h1 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.camera-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.camera-preview {
+  aspect-ratio: 16 / 7;
+  background: #050706;
+  border: 2px solid rgba(247, 243, 232, 0.85);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
 .selection-slot {
   background: rgba(247, 243, 232, 0.94);
   border: 3px solid transparent;
@@ -183,7 +218,6 @@ h1 {
   min-height: 56px;
   padding: 16px 8px;
   text-align: center;
-  text-transform: uppercase;
 }
 
 .fighter-card span {
@@ -274,7 +308,7 @@ video {
 .stage {
   background:
     linear-gradient(rgba(114, 196, 221, 0.32), rgba(255, 255, 255, 0.08)),
-    url("/assets/gameSprites/background.jpg") center / cover;
+    url("/assets/gameSprites/background.jpg") var(--background-x, 0%) center / auto 100% repeat-x;
   border: 0;
   cursor: pointer;
   min-height: 0;
@@ -288,14 +322,14 @@ video {
 }
 
 .bird {
-  height: 15%;
+  height: 68%;
   left: 20%;
   object-fit: contain;
   position: absolute;
   top: var(--bird-y, 48%);
   transform: translate(-50%, -50%);
   transition: filter 90ms ease;
-  width: 10%;
+  width: 46%;
   z-index: 3;
 }
 
@@ -330,7 +364,6 @@ video {
   left: 10px;
   padding: 8px 10px;
   position: absolute;
-  text-transform: uppercase;
   z-index: 4;
 }
 
@@ -358,7 +391,6 @@ video {
 .winner-layout strong {
   font-size: clamp(1.8rem, 4vw, 3.7rem);
   line-height: 1;
-  text-transform: uppercase;
 }
 
 .winner-score {

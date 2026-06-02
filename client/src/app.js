@@ -5,7 +5,13 @@ let stream;
 let peer;
 let statusMessage = "Enter the host code.";
 let isStreaming = false;
-let lastJumpAt = 0;
+let lastDabAt = 0;
+let lastMoveAt = 0;
+let cvCanvas;
+let cvContext;
+let previousFrame;
+let motionLoop = 0;
+let motionLevel = 0;
 
 const app = document.querySelector("#app");
 render();
@@ -73,6 +79,13 @@ function connectEvents() {
 
 async function startCameraAndOffer() {
   try {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      statusMessage =
+        "Camera is unavailable because this page is not secure. Use HTTPS on the phone URL.";
+      render();
+      return;
+    }
+
     statusMessage = "Requesting camera permission...";
     render();
 
@@ -86,10 +99,22 @@ async function startCameraAndOffer() {
     });
 
     attachPreview();
+    startMotionDetection();
 
     peer = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
+
+    peer.onconnectionstatechange = () => {
+      statusMessage = `Connection: ${peer.connectionState}.`;
+      isStreaming = peer.connectionState === "connected";
+      render();
+    };
+
+    peer.oniceconnectionstatechange = () => {
+      statusMessage = `ICE: ${peer.iceConnectionState}.`;
+      render();
+    };
 
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
@@ -129,18 +154,61 @@ async function sendSignal(payload) {
   });
 }
 
-async function sendJump() {
+async function sendDab(intensity = 1) {
   if (!isStreaming || !roomCode || !playerId) return;
 
   const now = performance.now();
-  if (now - lastJumpAt < 120) return;
-  lastJumpAt = now;
+  if (now - lastDabAt < 650) return;
+  lastDabAt = now;
 
   await fetch("/api/input", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: roomCode, playerId, action: "jump" })
+    body: JSON.stringify({ code: roomCode, playerId, action: "dab", intensity })
   });
+}
+
+function startMotionDetection() {
+  cancelAnimationFrame(motionLoop);
+  cvCanvas = document.createElement("canvas");
+  cvCanvas.width = 48;
+  cvCanvas.height = 36;
+  cvContext = cvCanvas.getContext("2d", { willReadFrequently: true });
+  previousFrame = undefined;
+  motionLoop = requestAnimationFrame(detectMotion);
+}
+
+function detectMotion() {
+  const video = document.querySelector("#preview");
+  if (!video || !cvContext || video.readyState < 2) {
+    motionLoop = requestAnimationFrame(detectMotion);
+    return;
+  }
+
+  cvContext.drawImage(video, 0, 0, cvCanvas.width, cvCanvas.height);
+  const frame = cvContext.getImageData(0, 0, cvCanvas.width, cvCanvas.height).data;
+
+  if (previousFrame) {
+    let diff = 0;
+    for (let index = 0; index < frame.length; index += 16) {
+      diff += Math.abs(frame[index] - previousFrame[index]);
+    }
+
+    const intensity = Math.min(1, diff / 70000);
+    const now = performance.now();
+    motionLevel = intensity;
+
+    if (intensity > 0.12 && now - lastMoveAt > 500) {
+      lastMoveAt = now;
+      statusMessage = "DAB BOOST";
+      console.log(`[cv] dab detected intensity=${intensity.toFixed(2)}`);
+      render();
+      sendDab(intensity);
+    }
+  }
+
+  previousFrame = new Uint8ClampedArray(frame);
+  motionLoop = requestAnimationFrame(detectMotion);
 }
 
 function render() {
@@ -164,18 +232,20 @@ function render() {
           <button type="submit">Start camera</button>
         </form>
         <p class="status">${statusMessage}</p>
+        <p class="status">Motion ${motionLevel.toFixed(2)}</p>
       </section>
 
       <section class="icon-layer" aria-label="move prompts">
-        <span class="move move-jump">J</span>
+        <button class="move move-jump" id="manual-dab" type="button">DAB</button>
       </section>
     </main>
   `;
 
   document.querySelector("#join-form")?.addEventListener("submit", handleJoin);
+  document.querySelector("#manual-dab")?.addEventListener("click", () => sendDab(1));
   document.querySelector("#phone-shell")?.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("form")) return;
-    sendJump();
+    if (event.target.closest("form") || event.target.closest("#manual-dab")) return;
+    sendDab(1);
   });
   attachPreview();
 }
