@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -11,7 +12,10 @@ import numpy as np
 from libreyolo import LibreYOLO
 
 from mibombo_cv.gestures import MovementRecognizer, PoseFrame, to_movement_event
+from mibombo_cv.overlay import draw_movement_banner, draw_pose
 from mibombo_cv.types import MovementEvent
+
+BANNER_DURATION_MS = 800
 
 
 @dataclass
@@ -20,6 +24,7 @@ class DetectorConfig:
     camera_index: int = 0
     confidence: float = 0.35
     show_preview: bool = False
+    show_skeleton: bool = False
     # Run pose model every N captured frames (1 = every frame).
     infer_every: int = 2
     # Max width sent to the model; keypoints are scaled back to full frame size.
@@ -28,6 +33,12 @@ class DetectorConfig:
     capture_height: int = 480
     # Min ms between events of the same movement type.
     cooldown_ms: int = 400
+
+
+@dataclass
+class FrameResult:
+    pose: PoseFrame | None
+    event: MovementEvent | None
 
 
 def _configure_capture(cap: cv2.VideoCapture, config: DetectorConfig) -> None:
@@ -66,6 +77,9 @@ class MovementDetector:
         self.recognizer = MovementRecognizer(cooldown_ms=self.config.cooldown_ms)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mibombo-infer")
         self._frame_index = 0
+        self._last_pose: PoseFrame | None = None
+        self._last_event: MovementEvent | None = None
+        self._banner_until_ms = 0
 
     def _select_person(self, result) -> tuple[np.ndarray, np.ndarray] | None:
         if result.keypoints is None or len(result) == 0:
@@ -100,14 +114,17 @@ class MovementDetector:
         every = max(1, self.config.infer_every)
         return self._frame_index % every == 0
 
-    def process_frame(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None) -> MovementEvent | None:
+    def show_window(self) -> bool:
+        return self.config.show_preview or self.config.show_skeleton
+
+    def process_frame(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None) -> FrameResult:
         ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
         height, width = frame_bgr.shape[:2]
         infer_frame, scale_x, scale_y = _resize_for_infer(frame_bgr, self.config.infer_width)
         result = self.model(infer_frame, color_format="bgr", conf=self.config.confidence)
         selected = self._select_person(result)
         if selected is None:
-            return None
+            return FrameResult(pose=None, event=None)
 
         keypoints, visible = selected
         keypoints = _scale_keypoints(keypoints, scale_x, scale_y)
@@ -119,14 +136,38 @@ class MovementDetector:
             timestamp_ms=ts,
         )
         candidate = self.recognizer.update(pose_frame)
-        if candidate is None:
-            return None
-        return to_movement_event(candidate, ts)
+        event = to_movement_event(candidate, ts) if candidate is not None else None
+        return FrameResult(pose=pose_frame, event=event)
+
+    def apply_frame_result(self, result: FrameResult, timestamp_ms: int) -> MovementEvent | None:
+        if result.pose is not None:
+            self._last_pose = result.pose
+        if result.event is not None:
+            self._last_event = result.event
+            self._banner_until_ms = timestamp_ms + BANNER_DURATION_MS
+        return result.event
+
+    def annotate_frame(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None) -> np.ndarray:
+        """Draw overlay in-place on frame_bgr (avoids per-frame copy)."""
+        ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
+
+        if self.config.show_skeleton and self._last_pose is not None:
+            draw_pose(frame_bgr, self._last_pose.keypoints, self._last_pose.visible)
+
+        if self._last_event is not None and ts < self._banner_until_ms:
+            draw_movement_banner(
+                frame_bgr,
+                self._last_event.movement,
+                self._last_event.speed,
+                self._last_event.confidence,
+            )
+
+        return frame_bgr
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
-    def run_camera(self):
+    def _open_capture(self) -> cv2.VideoCapture:
         cap = cv2.VideoCapture(self.config.camera_index, cv2.CAP_V4L2)
         if not cap.isOpened():
             cap = cv2.VideoCapture(self.config.camera_index)
@@ -137,6 +178,15 @@ class MovementDetector:
                 "run: fuser /dev/video0  then kill that PID."
             )
         _configure_capture(cap, self.config)
+        return cap
+
+    def run_capture_loop(
+        self,
+        on_event: Callable[[MovementEvent], None] | None = None,
+    ) -> None:
+        """Shared camera loop for stdout and websocket modes."""
+        cap = self._open_capture()
+        show = self.show_window()
 
         try:
             while True:
@@ -144,19 +194,30 @@ class MovementDetector:
                 if not ok:
                     break
 
-                if self.config.show_preview:
+                ts = int(time.time() * 1000)
+
+                # Show the latest camera frame before inference so preview stays responsive.
+                if show:
+                    needs_overlay = self.config.show_skeleton or ts < self._banner_until_ms
+                    if needs_overlay:
+                        self.annotate_frame(frame, ts)
                     cv2.imshow("mibombo-cv", frame)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 
-                if not self.should_infer():
-                    continue
-
-                event = self.process_frame(frame)
-                if event is not None:
-                    print(json.dumps(event.to_dict()), flush=True)
+                if self.should_infer():
+                    result = self.process_frame(frame, ts)
+                    event = self.apply_frame_result(result, ts)
+                    if event is not None and on_event is not None:
+                        on_event(event)
         finally:
             cap.release()
-            if self.config.show_preview:
+            if show:
                 cv2.destroyAllWindows()
             self.shutdown()
+
+    def run_camera(self) -> None:
+        def on_event(event: MovementEvent) -> None:
+            print(json.dumps(event.to_dict()), flush=True)
+
+        self.run_capture_loop(on_event=on_event)

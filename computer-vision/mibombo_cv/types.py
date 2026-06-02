@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-MovementName = Literal["flight", "dab", "whoa_raise", "hands_up"]
+MovementName = Literal["flight", "dab", "whoa_raise"]
 
 
 @dataclass(frozen=True)

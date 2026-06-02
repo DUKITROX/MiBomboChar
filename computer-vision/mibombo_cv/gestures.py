@@ -83,12 +83,7 @@ class MovementRecognizer:
         if len(self._history) < 4:
             return None
 
-        for detector in (
-            self._detect_dab,
-            self._detect_hands_up,
-            self._detect_flight,
-            self._detect_whoa_raise,
-        ):
+        for detector in (self._detect_dab, self._detect_flight, self._detect_whoa_raise):
             candidate = detector(frame)
             if candidate and self._should_emit(candidate.movement, frame.timestamp_ms):
                 self._last_emitted[candidate.movement] = frame.timestamp_ms
@@ -143,44 +138,6 @@ class MovementRecognizer:
 
         confidence = min(1.0, (0.12 - head_to_elbow) * 8 + arm_extension * 2)
         return GestureCandidate("dab", speed=0.35, confidence=confidence)
-
-    def _detect_hands_up(self, frame: PoseFrame) -> GestureCandidate | None:
-        required = (L_SHOULDER, R_SHOULDER, L_ELBOW, R_ELBOW, L_WRIST, R_WRIST)
-        if not _visible(required, frame):
-            return None
-
-        kp = frame.keypoints
-        margin = frame.frame_height * 0.06
-        wrists_above = (
-            kp[L_WRIST][1] < kp[L_SHOULDER][1] - margin
-            and kp[R_WRIST][1] < kp[R_SHOULDER][1] - margin
-        )
-        if not wrists_above:
-            return None
-
-        elbows_raised = (
-            kp[L_ELBOW][1] < kp[L_SHOULDER][1] + margin
-            and kp[R_ELBOW][1] < kp[R_SHOULDER][1] + margin
-        )
-        if not elbows_raised:
-            return None
-
-        # Flight keeps wrists near shoulder height while flapping; hands up is clearly higher.
-        wrists_near_shoulders = (
-            abs(kp[L_WRIST][1] - kp[L_SHOULDER][1]) < frame.frame_height * 0.10
-            and abs(kp[R_WRIST][1] - kp[R_SHOULDER][1]) < frame.frame_height * 0.10
-        )
-        if wrists_near_shoulders:
-            return None
-
-        left_raise = (kp[L_SHOULDER][1] - kp[L_WRIST][1]) / frame.frame_height
-        right_raise = (kp[R_SHOULDER][1] - kp[R_WRIST][1]) / frame.frame_height
-        raise_amount = (left_raise + right_raise) / 2
-        if raise_amount < 0.12:
-            return None
-        speed = min(1.0, raise_amount * 2.5)
-        confidence = min(1.0, raise_amount * 3 + 0.2)
-        return GestureCandidate("hands_up", speed=speed, confidence=confidence)
 
     def _detect_flight(self, frame: PoseFrame) -> GestureCandidate | None:
         required = (L_SHOULDER, R_SHOULDER, L_ELBOW, R_ELBOW, L_WRIST, R_WRIST)

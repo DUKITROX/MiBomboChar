@@ -9,7 +9,8 @@ from typing import Set
 import cv2
 import websockets
 
-from mibombo_cv.detector import DetectorConfig, MovementDetector, _configure_capture
+from mibombo_cv.detector import DetectorConfig, MovementDetector
+from mibombo_cv.types import MovementEvent
 
 
 async def _broadcast(clients: Set, payload: dict) -> None:
@@ -32,17 +33,8 @@ async def run_server(host: str, port: int, detector: MovementDetector) -> None:
     loop = asyncio.get_running_loop()
 
     async with websockets.serve(handler, host, port):
-        cap = cv2.VideoCapture(detector.config.camera_index, cv2.CAP_V4L2)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(detector.config.camera_index)
-        if not cap.isOpened():
-            raise RuntimeError(
-                f"Could not open camera index {detector.config.camera_index}. "
-                "Another app (or a previous run.py) may be using the webcam — "
-                "run: fuser /dev/video0  then kill that PID, or close Cheese/Zoom/browser camera."
-            )
-
-        _configure_capture(cap, detector.config)
+        cap = detector._open_capture()
+        show = detector.show_window()
 
         try:
             while True:
@@ -51,31 +43,33 @@ async def run_server(host: str, port: int, detector: MovementDetector) -> None:
                     await asyncio.sleep(0.05)
                     continue
 
-                if detector.config.show_preview:
+                ts = int(time.time() * 1000)
+
+                if show:
+                    needs_overlay = detector.config.show_skeleton or ts < detector._banner_until_ms
+                    if needs_overlay:
+                        detector.annotate_frame(frame, ts)
                     cv2.imshow("mibombo-cv", frame)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 
-                if not detector.should_infer():
-                    await asyncio.sleep(0)
-                    continue
-
-                ts = int(time.time() * 1000)
-                event = await loop.run_in_executor(
-                    detector._executor,
-                    detector.process_frame,
-                    frame,
-                    ts,
-                )
-                if event is not None:
-                    payload = event.to_dict()
-                    print(json.dumps(payload), flush=True)
-                    await _broadcast(clients, payload)
+                if detector.should_infer():
+                    result = await loop.run_in_executor(
+                        detector._executor,
+                        detector.process_frame,
+                        frame,
+                        ts,
+                    )
+                    event = detector.apply_frame_result(result, ts)
+                    if event is not None:
+                        payload = event.to_dict()
+                        print(json.dumps(payload), flush=True)
+                        await _broadcast(clients, payload)
 
                 await asyncio.sleep(0)
         finally:
             cap.release()
-            if detector.config.show_preview:
+            if show:
                 cv2.destroyAllWindows()
             detector.shutdown()
 
@@ -85,7 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--model", default="LibreYOLONASs-pose.pt")
     parser.add_argument("--conf", type=float, default=0.35)
-    parser.add_argument("--preview", action="store_true")
+    parser.add_argument("--preview", action="store_true", help="Show camera window.")
+    parser.add_argument(
+        "--skeleton",
+        action="store_true",
+        help="Draw pose skeleton on the camera feed (opens window if preview is off).",
+    )
     parser.add_argument(
         "--infer-every",
         type=int,
@@ -123,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         camera_index=args.camera,
         confidence=args.conf,
         show_preview=args.preview,
+        show_skeleton=args.skeleton,
         infer_every=max(1, args.infer_every),
         infer_width=max(160, args.infer_width),
         cooldown_ms=max(0, args.cooldown_ms),

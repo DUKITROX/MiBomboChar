@@ -73,31 +73,6 @@ def test_flight_speed_reflects_flap_intensity():
     assert fast_result.speed > slow_result.speed + 0.15
 
 
-def _fill_hands_up_pose(frame: PoseFrame) -> None:
-    frame.keypoints[L_SHOULDER] = (280, 320)
-    frame.keypoints[R_SHOULDER] = (360, 320)
-    frame.keypoints[L_ELBOW] = (300, 220)
-    frame.keypoints[R_ELBOW] = (340, 220)
-    frame.keypoints[L_WRIST] = (290, 160)
-    frame.keypoints[R_WRIST] = (350, 160)
-
-
-def test_detects_hands_up_pose():
-    recognizer = MovementRecognizer(cooldown_ms=0)
-    for ts in range(4):
-        frame = _blank_pose(ts * 50)
-        _fill_hands_up_pose(frame)
-        recognizer.update(frame)
-
-    frame = _blank_pose(250)
-    _fill_hands_up_pose(frame)
-    result = recognizer.update(frame)
-
-    assert result is not None
-    assert result.movement == "hands_up"
-    assert result.speed > 0
-
-
 def test_detects_dab_pose():
     recognizer = MovementRecognizer(cooldown_ms=0)
     for ts in range(4):

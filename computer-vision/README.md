@@ -13,7 +13,6 @@ Real-time movement detection from webcam using [LibreYOLO](https://github.com/Li
 | `flight` | Arms spread wide, flapping like a bird |
 | `dab` | Meme dab pose (assumed for "dub") |
 | `whoa_raise` | Toss upward then catch (whoa motion) |
-| `hands_up` | Both arms raised above shoulders (celebrate / charge) |
 
 Each detection emits a **movement event**:
 
@@ -48,10 +47,19 @@ WebSocket server (default, for the game platform):
 # connects at ws://127.0.0.1:8765
 ```
 
+**Skeleton overlay:** draw a live COCO pose on the camera feed and flash a top banner when a movement is detected:
+
+```bash
+../.venv/bin/python run.py --skeleton
+../.venv/bin/python run.py --preview --skeleton
+```
+
+`--skeleton` opens the camera window even without `--preview`. The skeleton is held between pose frames (`infer_every`) so it does not flicker. Movement labels stay visible for ~800 ms after each event.
+
 **Performance (CPU laptops):** pose runs every 2 frames at 480px width by default. If preview still lags, try:
 
 ```bash
-../.venv/bin/python run.py --preview --infer-every 3 --infer-width 384
+../.venv/bin/python run.py --preview --skeleton --infer-every 3 --infer-width 384
 ```
 
 Stdout-only mode:
@@ -72,7 +80,7 @@ Do **not** open `http://127.0.0.1:8765` in a browser tab — that sends plain HT
 ../.venv/bin/python ws_client.py
 ```
 
-Options: `--host`, `--port`, `--json` (raw JSON lines). The client validates payload shape and prints movement events.
+Options: `--host`, `--port`, `--json` (raw JSON lines), `--skeleton`, `--cooldown-ms`. The client validates payload shape and prints movement events.
 
 If you see `address already in use`, another detector is still running. Stop it or use another port:
 
