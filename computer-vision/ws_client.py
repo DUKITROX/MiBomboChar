@@ -8,7 +8,8 @@ import sys
 
 import websockets
 
-VALID_MOVEMENTS = frozenset({"flight", "dab", "whoa_raise"})
+VALID_MOVEMENTS = frozenset({"flight", "dab"})
+# whoa_raise, six_seven disabled for now
 REQUIRED_KEYS = frozenset({"movement", "speed", "confidence", "timestamp_ms"})
 
 

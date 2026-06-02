@@ -12,7 +12,8 @@ Real-time movement detection from webcam using [LibreYOLO](https://github.com/Li
 | --- | --- |
 | `flight` | Arms spread wide, flapping like a bird |
 | `dab` | Meme dab pose (assumed for "dub") |
-| `whoa_raise` | Toss upward then catch (whoa motion) |
+
+`whoa_raise` and `six_seven` are **disabled** for now (detectors commented out in `gestures.py`).
 
 Each detection emits a **movement event**:
 

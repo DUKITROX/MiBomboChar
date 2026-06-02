@@ -5,7 +5,7 @@ Real-time camera service that recognizes player body movements and publishes the
 ## Language
 
 **Movement**:
-A named player gesture the game reacts to (`flight`, `dab`, `whoa_raise`). Not every motion — only gestures that pass detector thresholds.
+A named player gesture the game reacts to (`flight`, `dab`). Not every motion — only gestures that pass detector thresholds. (`whoa_raise`, `six_seven` disabled for now.)
 _Avoid_: gesture, action, pose
 
 **Movement event**:
@@ -24,13 +24,13 @@ _Avoid_: fly, bird pose
 Meme pose — one arm raised diagonally upward, head tucked toward the opposite elbow/shoulder. (Assumed spelling of "dub" until confirmed.)
 _Avoid_: dub
 
-**Whoa raise**:
-Player throws an object (or empty hands) upward from chest level, then catches on the way down — the classic "whoa" toss-and-catch motion.
+**Whoa raise** (disabled for now):
+Player throws upward from chest level then catches — detector commented out in `gestures.py`.
 _Avoid_: lanzar, throw
 
-**Hands up**:
-Both arms raised above the shoulders (celebrate / charge / ready pose). Wrists clearly above shoulder line, not a horizontal flap like flight.
-_Avoid_: hands up, surrender
+**Six seven** (`six_seven`, disabled for now):
+Both hands in front of the chest, pumping up and down together — detector commented out in `gestures.py`.
+_Avoid_: six-seven (use `six_seven` in JSON), hands_up
 
 **Player**:
 The single human in frame the detector tracks. MVP assumes one player, largest person detection.

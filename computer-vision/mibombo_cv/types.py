@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-MovementName = Literal["flight", "dab", "whoa_raise"]
+MovementName = Literal["flight", "dab"]
+# whoa_raise, six_seven disabled for now; add back to MovementName when re-enabled
 
 
 @dataclass(frozen=True)

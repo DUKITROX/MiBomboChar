@@ -56,7 +56,7 @@ See [computer-vision/README.md](computer-vision/README.md) for setup details, ru
 
 | Field | Meaning |
 | --- | --- |
-| `movement` | One of `flight`, `dab`, `whoa_raise` |
+| `movement` | One of `flight`, `dab` (`whoa_raise`, `six_seven` disabled for now) |
 | `speed` | Normalized 0–1 intensity from body-part motion |
 | `confidence` | Heuristic score for the detected pose pattern |
 | `timestamp_ms` | Unix epoch milliseconds when the movement was recognized |
@@ -66,7 +66,6 @@ See [computer-vision/README.md](computer-vision/README.md) for setup details, ru
 - One event per recognized movement burst
 - 400 ms cooldown per movement type by default (`--cooldown-ms`; reduces duplicate spam)
 - MVP tracks the largest person in frame
-
 **Reference consumer:** [computer-vision/ws_client.py](computer-vision/ws_client.py)
 
 ## Links

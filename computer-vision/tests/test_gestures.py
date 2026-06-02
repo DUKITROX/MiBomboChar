@@ -2,7 +2,6 @@ import numpy as np
 
 from mibombo_cv.gestures import (
     L_ELBOW,
-    L_HIP,
     L_SHOULDER,
     L_WRIST,
     NOSE,
@@ -98,22 +97,3 @@ def test_detects_dab_pose():
 
     assert result is not None
     assert result.movement == "dab"
-
-
-def test_detects_whoa_raise_sequence():
-    recognizer = MovementRecognizer(cooldown_ms=0)
-    wrist_path = [420, 410, 380, 320, 280, 300, 340, 380]
-
-    result = None
-    for idx, wrist_y in enumerate(wrist_path):
-        frame = _blank_pose(idx * 50)
-        frame.keypoints[L_SHOULDER] = (520, 320)
-        frame.keypoints[R_SHOULDER] = (760, 320)
-        frame.keypoints[L_HIP] = (540, 420)
-        frame.keypoints[R_HIP] = (740, 420)
-        frame.keypoints[L_WRIST] = (600, wrist_y)
-        frame.keypoints[R_WRIST] = (680, wrist_y)
-        result = recognizer.update(frame)
-    assert result is not None
-    assert result.movement == "whoa_raise"
-    assert result.speed > 0

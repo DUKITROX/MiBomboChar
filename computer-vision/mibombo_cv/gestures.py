@@ -83,7 +83,8 @@ class MovementRecognizer:
         if len(self._history) < 4:
             return None
 
-        for detector in (self._detect_dab, self._detect_flight, self._detect_whoa_raise):
+        # whoa_raise, six_seven disabled for now — re-add detectors to enable
+        for detector in (self._detect_dab, self._detect_flight):
             candidate = detector(frame)
             if candidate and self._should_emit(candidate.movement, frame.timestamp_ms):
                 self._last_emitted[candidate.movement] = frame.timestamp_ms
@@ -94,7 +95,7 @@ class MovementRecognizer:
         last = self._last_emitted.get(movement)
         return last is None or timestamp_ms - last >= self._cooldown_ms
 
-    def _recent_flight_flap_speed(self, frame: PoseFrame, *, window: int = 5) -> float:
+    def _recent_sync_wrist_speed(self, frame: PoseFrame, *, window: int = 5) -> float:
         """Peak synchronized wrist velocity over the last few frames of the current flap."""
         peak_raw = 0.0
         recent = list(self._history)[-window:]
@@ -167,51 +168,55 @@ class MovementRecognizer:
         if not synchronized or magnitude < frame.frame_height * 0.015:
             return None
 
-        speed = self._recent_flight_flap_speed(frame)
+        speed = self._recent_sync_wrist_speed(frame)
         confidence = min(1.0, span * 2 + speed)
         return GestureCandidate("flight", speed=speed, confidence=confidence)
 
-    def _detect_whoa_raise(self, frame: PoseFrame) -> GestureCandidate | None:
-        required = (L_WRIST, R_WRIST, L_SHOULDER, R_SHOULDER, L_HIP, R_HIP)
-        if not _visible(required, frame):
-            return None
+    # def _detect_six_seven(self, frame: PoseFrame) -> GestureCandidate | None:
+    #     """Front chest pump (6-7 balance) — disabled for now."""
+    #     ...
 
-        kp = frame.keypoints
-        chest_y = (kp[L_SHOULDER][1] + kp[R_SHOULDER][1] + kp[L_HIP][1] + kp[R_HIP][1]) / 4
-
-        # Look for upward toss in recent frames, then hands returning down.
-        recent = list(self._history)[-6:]
-        if len(recent) < 6:
-            return None
-
-        wrist_ys = []
-        for item in recent:
-            if not _visible((L_WRIST, R_WRIST), item):
-                return None
-            wrist_ys.append((item.keypoints[L_WRIST][1] + item.keypoints[R_WRIST][1]) / 2)
-
-        toss_idx = None
-        peak_speed = 0.0
-        for idx in range(1, len(wrist_ys) - 2):
-            dy = wrist_ys[idx] - wrist_ys[idx - 1]
-            if dy < -frame.frame_height * 0.02:
-                toss_idx = idx
-                dt_ms = float(recent[idx].timestamp_ms - recent[idx - 1].timestamp_ms)
-                raw = _norm_speed(dy, frame, dt_ms=dt_ms, ref_height_fraction=2.2)
-                peak_speed = max(peak_speed, _flight_speed(raw))
-
-        if toss_idx is None:
-            return None
-
-        started_low = wrist_ys[0] > chest_y - frame.frame_height * 0.05
-        peaked_high = min(wrist_ys[toss_idx : toss_idx + 2]) < chest_y - frame.frame_height * 0.08
-        catching = wrist_ys[-1] > wrist_ys[-2] > wrist_ys[-3]
-
-        if not (started_low and peaked_high and catching):
-            return None
-
-        confidence = min(1.0, peak_speed * 1.2 + 0.25)
-        return GestureCandidate("whoa_raise", speed=peak_speed, confidence=confidence)
+    # def _detect_whoa_raise(self, frame: PoseFrame) -> GestureCandidate | None:
+    #     """Toss upward from chest then catch — disabled for now."""
+    #     required = (L_WRIST, R_WRIST, L_SHOULDER, R_SHOULDER, L_HIP, R_HIP)
+    #     if not _visible(required, frame):
+    #         return None
+    #
+    #     kp = frame.keypoints
+    #     chest_y = (kp[L_SHOULDER][1] + kp[R_SHOULDER][1] + kp[L_HIP][1] + kp[R_HIP][1]) / 4
+    #
+    #     recent = list(self._history)[-6:]
+    #     if len(recent) < 6:
+    #         return None
+    #
+    #     wrist_ys = []
+    #     for item in recent:
+    #         if not _visible((L_WRIST, R_WRIST), item):
+    #             return None
+    #         wrist_ys.append((item.keypoints[L_WRIST][1] + item.keypoints[R_WRIST][1]) / 2)
+    #
+    #     toss_idx = None
+    #     peak_speed = 0.0
+    #     for idx in range(1, len(wrist_ys) - 2):
+    #         dy = wrist_ys[idx] - wrist_ys[idx - 1]
+    #         if dy < -frame.frame_height * 0.02:
+    #             toss_idx = idx
+    #             dt_ms = float(recent[idx].timestamp_ms - recent[idx - 1].timestamp_ms)
+    #             raw = _norm_speed(dy, frame, dt_ms=dt_ms, ref_height_fraction=2.2)
+    #             peak_speed = max(peak_speed, _flight_speed(raw))
+    #
+    #     if toss_idx is None:
+    #         return None
+    #
+    #     started_low = wrist_ys[0] > chest_y - frame.frame_height * 0.05
+    #     peaked_high = min(wrist_ys[toss_idx : toss_idx + 2]) < chest_y - frame.frame_height * 0.08
+    #     catching = wrist_ys[-1] > wrist_ys[-2] > wrist_ys[-3]
+    #
+    #     if not (started_low and peaked_high and catching):
+    #         return None
+    #
+    #     confidence = min(1.0, peak_speed * 1.2 + 0.25)
+    #     return GestureCandidate("whoa_raise", speed=peak_speed, confidence=confidence)
 
 
 def to_movement_event(candidate: GestureCandidate, timestamp_ms: int) -> MovementEvent:
