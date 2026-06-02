@@ -1,0 +1,11 @@
+{
+  "name": "mibombochar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/backend/src/index.js",
+    "start": "node server/backend/src/index.js",
+    "check": "node --check server/backend/src/index.js"
+  }
+}
