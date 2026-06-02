@@ -5,7 +5,7 @@ Real-time camera service that recognizes player body movements and publishes the
 ## Language
 
 **Movement**:
-A named player gesture the game reacts to (`flight`, `dab`, `whoa_raise`, `hands_up`). Not every motion — only gestures that pass detector thresholds.
+A named player gesture the game reacts to (`flight`, `dab`, `whoa_raise`). Not every motion — only gestures that pass detector thresholds.
 _Avoid_: gesture, action, pose
 
 **Movement event**:

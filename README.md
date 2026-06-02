@@ -56,7 +56,7 @@ See [computer-vision/README.md](computer-vision/README.md) for setup details, ru
 
 | Field | Meaning |
 | --- | --- |
-| `movement` | One of `flight`, `dab`, `whoa_raise`, `hands_up` |
+| `movement` | One of `flight`, `dab`, `whoa_raise` |
 | `speed` | Normalized 0–1 intensity from body-part motion |
 | `confidence` | Heuristic score for the detected pose pattern |
 | `timestamp_ms` | Unix epoch milliseconds when the movement was recognized |
