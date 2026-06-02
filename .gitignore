@@ -5,3 +5,9 @@ dist/
 certs/*.pem
 !certs/.gitkeep
 
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+runs/
+*.pt

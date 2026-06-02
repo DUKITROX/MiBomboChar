@@ -1,32 +1,75 @@
 # MiBomboChar
 
-Two-player camera-controlled racing game prototype.
+Hackathon MVP for a 2-player game controlled by body movements.
 
-The project is organized as a monorepo with separate areas for the phone client, laptop host server, and computer vision work.
+## Repository layout
 
-## Structure
+| Path | Role |
+| --- | --- |
+| [`computer-vision/`](computer-vision/) | Webcam + pose detection; publishes movement events over WebSocket |
+| [`client/`](client/) | Phone-facing player app for joining games and sharing camera input |
+| [`server/backend/`](server/backend/) | Host-side service for rooms, join codes, realtime messaging, and game state |
+| [`server/frontend/`](server/frontend/) | Laptop-facing host screen for lobby, race display, and player status |
 
-- `computer-vision/`: gesture, pose, and movement detection experiments.
-- `client/`: phone-facing player app for joining games and sharing camera input.
-- `server/backend/`: host-side service for rooms, join codes, realtime messaging, and game state.
-- `server/frontend/`: laptop-facing host screen for lobby, race display, and player status.
+The computer-vision service is the first implemented module; other areas are scaffolded for the hackathon monorepo.
 
-## Mobile Streaming MVP
+## Quick start
 
-The current app lets a laptop host create a room code and up to two phones join that room from a browser. Phone camera streams are sent to the host screen with WebRTC. The backend only handles room state and WebRTC signaling.
-
-## Local Development
-
-No external npm packages are required for the current MVP. Run the server:
-
-```sh
-npm run dev
+```bash
+cd computer-vision
+uv venv ../.venv
+uv pip install --python ../.venv/bin/python -r requirements.txt
 ```
 
-Default URLs:
+Terminal 1 — movement detector:
 
-- Host screen: `http://localhost:3000/host`
-- Phone client: `http://localhost:3000/client`
-- Signaling backend: same server, under `/api`
+```bash
+cd computer-vision
+../.venv/bin/python run.py --preview
+```
 
-For real phones on the same Wi-Fi, open the client with the laptop LAN IP, for example `https://192.168.1.20:3000/client`. Browser camera access requires a secure context, so phones need HTTPS. The server will use `certs/dev-cert.pem` and `certs/dev-key.pem` when those files exist, or the paths in `HTTPS_CERT` and `HTTPS_KEY`. Without cert files, the app runs over HTTP and camera access is only reliable on `localhost`.
+Terminal 2 — test client:
+
+```bash
+cd computer-vision
+../.venv/bin/python ws_client.py
+```
+
+See [computer-vision/README.md](computer-vision/README.md) for setup details, run modes, and movement descriptions.
+
+## Integration contract (game platform)
+
+**Endpoint:** `ws://127.0.0.1:8765` (configurable via `--host` / `--port` on the detector)
+
+**Transport:** Server pushes JSON text messages; clients listen only (no messages required from client).
+
+**Payload:**
+
+```json
+{
+  "movement": "flight",
+  "speed": 0.42,
+  "confidence": 0.81,
+  "timestamp_ms": 1717353600123
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `movement` | One of `flight`, `dab`, `whoa_raise`, `hands_up` |
+| `speed` | Normalized 0–1 intensity from body-part motion |
+| `confidence` | Heuristic score for the detected pose pattern |
+| `timestamp_ms` | Unix epoch milliseconds when the movement was recognized |
+
+**Semantics:**
+
+- One event per recognized movement burst
+- 400 ms cooldown per movement type by default (`--cooldown-ms`; reduces duplicate spam)
+- MVP tracks the largest person in frame
+
+**Reference consumer:** [computer-vision/ws_client.py](computer-vision/ws_client.py)
+
+## Links
+
+- [computer-vision/README.md](computer-vision/README.md) — setup, run modes, movements
+- [computer-vision/CONTEXT.md](computer-vision/CONTEXT.md) — domain glossary
